@@ -222,11 +222,14 @@ public class PerDestinationBundler extends BaseBundler implements Runnable {
 
         public void run() {
             try {
-                Message msg=queue.take();
-                if(msg == null)
-                    return;
-                addAndSendIfSizeExceeded(msg);
-                removeAndSend(false); // loops until no more msgs available or size exceeded
+                Message msg;
+                if(count > 0)
+                    msg=queue.poll(100, TimeUnit.MILLISECONDS);
+                else
+                    msg=queue.take();
+                if(msg != null)
+                    addAndSendIfSizeExceeded(msg);
+                removeAndSend(false);
             }
             catch(Throwable t) {
             }
@@ -279,12 +282,16 @@ public class PerDestinationBundler extends BaseBundler implements Runnable {
         protected void sendBundledMessages() {
             if(msgs.isEmpty()) // should never happen!
                 return;
-            sendMessages(dest, local_addr, msgs);
-            msgs.clear(false);
-            count=0;
+            if(sendMessages(dest, local_addr, msgs)) {
+                msgs.clear(false);
+                count=0;
+            }
+            else if(log.isTraceEnabled()) {
+                log.trace("%s: retained %d msgs (%d bytes) to %s", transport.getAddress(), msgs.size(), count, dest);
+            }
         }
 
-        protected void sendMessages(final Address dest, final Address src, final List<Message> list) {
+        protected boolean sendMessages(final Address dest, final Address src, final List<Message> list) {
             long start=transport.statsEnabled()? System.nanoTime() : 0;
             try {
                 output.position(0);
@@ -297,12 +304,14 @@ public class PerDestinationBundler extends BaseBundler implements Runnable {
                 if(transport.statsEnabled())
                     avg_send_time.add(System.nanoTime()-start);
                 total_msgs_sent.add(size);
+                return true;
             }
             catch(Throwable ex) {
                 if(suppress_log_timeout <= 0)
                     log.trace(FMT, transport.getAddress(), dest, ex.getMessage());
                 else
                     suppress_log.warn(dest, suppress_log_timeout, FMT, transport.getAddress(), dest, ex.getMessage());
+                return false;
             }
         }
 

@@ -302,6 +302,10 @@ public abstract class BaseServer implements Closeable, ConnectionListener {
         try {
             if(connected(conn=conns.get(dest)))
                 return conn;
+            if(conn != null) {
+                conns.remove(dest, conn);
+                Util.close(conn);
+            }
             conn=createConnection(dest);
             handleOutgoingConnection(dest, conn);
         }
